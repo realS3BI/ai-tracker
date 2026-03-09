@@ -1,0 +1,16 @@
+[Unit]
+Description=AI Cost Tracker
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-cost
+EnvironmentFile=/opt/ai-cost/.env
+ExecStart=/usr/bin/node /opt/ai-cost/dist/src/server.js
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

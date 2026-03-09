@@ -1,0 +1,54 @@
+{
+  "name": "@reals3bi/ai-cost",
+  "version": "0.1.0",
+  "description": "AI cost tracker with hosted backend, CLI, and simple web dashboard.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.31.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "ai-cost": "dist/src/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "hash-password": "tsx scripts/hash-password.ts",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm test && pnpm build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/secure-session": "^8.2.0",
+    "@t3-oss/env-core": "^0.13.10",
+    "argon2": "^0.44.0",
+    "dotenv": "^17.3.1",
+    "fastify": "^5.4.0",
+    "prompts": "^2.4.2",
+    "undici": "^7.16.0",
+    "zod": "^4.1.8"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/prompts": "^2.4.9",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
