@@ -39,7 +39,7 @@ function getCodexHome(config: AppConfig, options?: CodexSnapshotOptions): string
 }
 
 function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
 }
 
 function formatWindowLabel(windowMinutes: number | undefined, fallback: string): string {
@@ -213,9 +213,9 @@ export async function getCodexSnapshot(
       provider: "openai-codex",
       status: "ok",
       title: "OpenAI Codex Limits",
-      remainingDisplay: `${formatPercent(primaryRemaining)} / ${formatPercent(secondaryRemaining)}`,
-      usedDisplay: `${formatPercent(primaryUsed)} / ${formatPercent(secondaryUsed)}`,
-      limitDisplay: `${primaryWindow} / ${secondaryWindow}`,
+      remainingDisplay: `${formatPercent(primaryRemaining)}/${formatPercent(secondaryRemaining)}`,
+      usedDisplay: `${formatPercent(primaryUsed)}/${formatPercent(secondaryUsed)}`,
+      limitDisplay: `${primaryWindow}/${secondaryWindow}`,
       updatedAt: selectedEntry.timestamp,
       resetAt: primaryResetAt ?? undefined,
       secondaryResetAt: secondaryResetAt ?? undefined,

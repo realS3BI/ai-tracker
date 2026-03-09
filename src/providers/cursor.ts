@@ -6,7 +6,7 @@ export async function getCursorSnapshot(now: Date = new Date()): Promise<Provide
     status: "unsupported",
     title: "Cursor Limits",
     updatedAt: now.toISOString(),
-    message: "Official personal-account limits API is currently unavailable.",
+    message: "Unavailable.",
     source: "official-docs-status"
   };
 }

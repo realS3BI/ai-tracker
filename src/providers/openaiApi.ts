@@ -96,7 +96,7 @@ export async function getOpenAiApiSnapshot(
         status: "unauthorized",
         title: "OpenAI API Balance",
         updatedAt,
-        message: "OpenAI API key lacks access to organization costs.",
+        message: "Unauthorized.",
         source: "official-api"
       };
     }

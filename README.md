@@ -7,7 +7,7 @@ Hosted backend + CLI + simple web UI to track:
 - OpenRouter balance (official credits endpoint)
 - Cursor limits (currently `unsupported` for personal accounts)
 
-## Local development
+## Quick start
 
 1. Install dependencies:
 

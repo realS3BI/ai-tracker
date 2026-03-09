@@ -11,9 +11,9 @@ describe("codex provider", () => {
 
     expect(snapshot.status).toBe("ok");
     expect(snapshot.provider).toBe("openai-codex");
-    expect(snapshot.remainingDisplay).toBe("96.0% / 87.0%");
-    expect(snapshot.usedDisplay).toBe("4.0% / 13.0%");
-    expect(snapshot.limitDisplay).toBe("5h / 7d");
+    expect(snapshot.remainingDisplay).toBe("96%/87%");
+    expect(snapshot.usedDisplay).toBe("4%/13%");
+    expect(snapshot.limitDisplay).toBe("5h/7d");
     expect(snapshot.resetAt).toBe(primaryResetAt);
     expect(snapshot.secondaryResetAt).toBe(secondaryResetAt);
     expect(snapshot.message).toBe("Local Codex session limits");

@@ -24,9 +24,9 @@ const sampleSnapshot: SnapshotResponse = {
       provider: "openai-codex",
       status: "ok",
       title: "OpenAI Codex Limits",
-      remainingDisplay: "96.0% / 87.0%",
-      usedDisplay: "4.0% / 13.0%",
-      limitDisplay: "5h / 7d",
+      remainingDisplay: "96%/87%",
+      usedDisplay: "4%/13%",
+      limitDisplay: "5h/7d",
       resetAt: "2026-03-09T20:56:21.000Z",
       secondaryResetAt: "2026-03-15T07:19:13.000Z",
       updatedAt: "2026-03-09T10:00:00.000Z",
@@ -74,9 +74,9 @@ describe("cli output", () => {
     expect(table).toContain("Provider");
     expect(table).toContain("Reset");
     expect(table).toContain("OpenAI API");
-    expect(table).toContain("96.0% / 87.0%");
-    expect(table).toContain("4.0% / 13.0%");
-    expect(table).toContain("5h / 7d");
+    expect(table).toContain("96%/87%");
+    expect(table).toContain("4%/13%");
+    expect(table).toContain("5h/7d");
     expect(table).toContain(
       `${formatResetValue("2026-03-09T20:56:21.000Z", false)} / ${formatResetValue("2026-03-15T07:19:13.000Z", true)}`
     );
