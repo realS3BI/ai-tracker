@@ -32,6 +32,76 @@ pnpm dev
 
 `http://localhost:3000/login`
 
+## Server hosting
+
+Two production paths are prepared in this repo:
+
+- `compose.yaml` for Docker Compose
+- `deploy/ai-cost.service` for a plain Node.js + systemd deployment
+
+### Option 1: Docker Compose
+
+1. Copy environment file and generate secrets:
+
+```bash
+cp .env.example .env
+pnpm hash-password "your-password"
+```
+
+2. Fill `.env` with real secrets and API keys.
+
+3. Start the service:
+
+```bash
+docker compose up -d --build
+```
+
+4. Verify health:
+
+```bash
+curl http://127.0.0.1:3000/api/health
+```
+
+The container exposes port `3000` internally. Change the public bind port with `APP_BIND_PORT`, for example:
+
+```bash
+APP_BIND_PORT=8080
+```
+
+If you want Codex usage from inside the container, mount the host Codex directory and set `CODEX_HOME` to the mounted path.
+
+### Option 2: Node.js + systemd
+
+1. Install Node.js 22+ and `pnpm` on the server.
+
+2. Build the app:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+3. Copy `deploy/ai-cost.service` to `/etc/systemd/system/ai-cost.service` and adjust paths/user if needed.
+
+4. Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-cost
+sudo systemctl status ai-cost
+```
+
+### Reverse proxy
+
+Run the app behind HTTPS via Nginx, Caddy, or Traefik and proxy requests to `127.0.0.1:3000`.
+
+Recommended production setup:
+
+- Keep `APP_SECURE_COOKIE=true`
+- Leave `HOST=0.0.0.0`
+- Expose only the reverse proxy publicly
+- Use `/api/health` for uptime checks
+
 ## CLI usage
 
 Build once, then run:
