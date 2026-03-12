@@ -23,6 +23,7 @@
     "dev": "tsx watch src/server.ts",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "pnpm clean && tsc -p tsconfig.json",
+    "deploy": "node scripts/deploy.mjs",
     "start": "node dist/src/server.js",
     "hash-password": "tsx scripts/hash-password.ts",
     "prepack": "pnpm build",

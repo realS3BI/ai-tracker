@@ -7,6 +7,8 @@ const validEnv: NodeJS.ProcessEnv = {
   PORT: "3000",
   OPENAI_API_KEY: "sk-test",
   OPENROUTER_API_KEY: "or-test",
+  APP_DATA_DIR: "/tmp/ai-cost-test",
+  CURSOR_TEAM_ID: "-1",
   APP_PASSWORD_HASH: "$argon2id$v=19$m=65536,t=3,p=4$dummy$dummy",
   APP_SESSION_SECRET: "session-secret-123456",
   APP_TOKEN_SECRET: "token-secret-123456",
@@ -20,6 +22,7 @@ describe("loadConfig", () => {
     const config = loadConfig(validEnv);
     expect(config.PORT).toBe(3000);
     expect(config.CLI_TOKEN_TTL_SECONDS).toBe(900);
+    expect(config.APP_DATA_DIR).toBe("/tmp/ai-cost-test");
     expect(config.appSecureCookie).toBe(false);
   });
 

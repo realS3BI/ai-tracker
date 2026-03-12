@@ -11,6 +11,7 @@ type KeytarLike = {
 
 interface CliConfigFile {
   backendUrl?: string;
+  clientEnvPath?: string;
 }
 
 const APP_DIR = join(homedir(), ".ai-cost");
@@ -40,6 +41,10 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
 
 function normalizeBackendUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+function normalizePath(value: string): string {
+  return value.trim();
 }
 
 async function getKeytarClient(): Promise<KeytarLike | null> {
@@ -116,10 +121,20 @@ export async function getBackendUrl(): Promise<string | null> {
 }
 
 export async function setBackendUrl(url: string): Promise<void> {
-  const normalized = normalizeBackendUrl(url);
-  await writeJsonFile(CONFIG_PATH, {
-    backendUrl: normalized
-  } satisfies CliConfigFile);
+  const config = (await readJsonFile<CliConfigFile>(CONFIG_PATH)) ?? {};
+  config.backendUrl = normalizeBackendUrl(url);
+  await writeJsonFile(CONFIG_PATH, config satisfies CliConfigFile);
+}
+
+export async function getClientEnvPath(): Promise<string | null> {
+  const config = await readJsonFile<CliConfigFile>(CONFIG_PATH);
+  return config?.clientEnvPath ?? null;
+}
+
+export async function setClientEnvPath(path: string): Promise<void> {
+  const config = (await readJsonFile<CliConfigFile>(CONFIG_PATH)) ?? {};
+  config.clientEnvPath = normalizePath(path);
+  await writeJsonFile(CONFIG_PATH, config satisfies CliConfigFile);
 }
 
 export async function getStoredToken(): Promise<string | null> {

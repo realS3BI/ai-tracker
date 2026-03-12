@@ -1,8 +1,8 @@
-import type { AppConfig } from "../config.js";
 import type { ProviderSnapshot } from "../types.js";
+import type { ProviderRuntimeConfig } from "./runtime-config.js";
 import { fetchJsonWithTimeout } from "./http.js";
 
-interface OpenAICostBucket {
+interface OpenAICostResult {
   amount?: {
     value?: number;
     currency?: string;
@@ -10,16 +10,33 @@ interface OpenAICostBucket {
   value?: number;
 }
 
+interface OpenAICostBucket extends OpenAICostResult {
+  results?: OpenAICostResult[];
+}
+
 interface OpenAICostResponse {
   data?: OpenAICostBucket[];
 }
 
-function getMonthBoundsUtc(now: Date): { startTime: number; endTime: number; resetAt: string } {
+export interface OpenAiApiDetails {
+  snapshot: ProviderSnapshot;
+  periodStart: string;
+  periodEnd: string;
+  periodTimezone: "UTC";
+  budgetUsd?: number;
+  budgetConfigured: boolean;
+  organizationHeaderConfigured: boolean;
+  endpoint: "/v1/organization/costs";
+}
+
+function getMonthBoundsUtc(now: Date): { startTime: number; endTime: number; periodStart: string; periodEnd: string; resetAt: string } {
   const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0);
   const nextMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0);
   return {
     startTime: Math.floor(start / 1000),
     endTime: Math.floor(now.getTime() / 1000),
+    periodStart: new Date(start).toISOString(),
+    periodEnd: now.toISOString(),
     resetAt: new Date(nextMonth).toISOString()
   };
 }
@@ -28,46 +45,59 @@ function sumCosts(response: OpenAICostResponse): number {
   if (!Array.isArray(response.data)) {
     return 0;
   }
+
+  const getAmountValue = (entry: OpenAICostResult): number => {
+    if (typeof entry.amount?.value === "number") {
+      return entry.amount.value;
+    }
+
+    if (typeof entry.value === "number") {
+      return entry.value;
+    }
+
+    return 0;
+  };
+
   return response.data.reduce((total, entry) => {
-    const amountValue =
-      typeof entry.amount?.value === "number"
-        ? entry.amount.value
-        : typeof entry.value === "number"
-          ? entry.value
-          : 0;
-    return total + amountValue;
+    if (Array.isArray(entry.results)) {
+      return total + entry.results.reduce((bucketTotal, result) => bucketTotal + getAmountValue(result), 0);
+    }
+
+    return total + getAmountValue(entry);
   }, 0);
 }
 
-export async function getOpenAiApiSnapshot(
-  config: AppConfig,
+export async function getOpenAiApiDetails(
+  config: ProviderRuntimeConfig,
   now: Date = new Date()
-): Promise<ProviderSnapshot> {
+): Promise<OpenAiApiDetails> {
   const updatedAt = now.toISOString();
+  const { startTime, endTime, periodStart, periodEnd, resetAt } = getMonthBoundsUtc(now);
+  const configuredBudgetUsd = config.OPENAI_MONTHLY_BUDGET_USD;
+  const budgetConfigured = typeof configuredBudgetUsd === "number";
+  const organizationHeaderConfigured = Boolean(config.OPENAI_ORG_ID);
+  const budgetUsd = budgetConfigured ? Number(configuredBudgetUsd.toFixed(6)) : undefined;
 
   if (!config.OPENAI_API_KEY) {
     return {
-      provider: "openai-api",
-      status: "error",
-      title: "OpenAI API Balance",
-      updatedAt,
-      message: "OPENAI_API_KEY is not configured.",
-      source: "official-api"
+      snapshot: {
+        provider: "openai-api",
+        status: "error",
+        title: "OpenAI API Balance",
+        updatedAt,
+        message: "OPENAI_API_KEY is not configured.",
+        source: "official-api"
+      },
+      periodStart,
+      periodEnd,
+      periodTimezone: "UTC",
+      budgetUsd,
+      budgetConfigured,
+      organizationHeaderConfigured,
+      endpoint: "/v1/organization/costs"
     };
   }
 
-  if (typeof config.OPENAI_MONTHLY_BUDGET_USD !== "number") {
-    return {
-      provider: "openai-api",
-      status: "error",
-      title: "OpenAI API Balance",
-      updatedAt,
-      message: "OPENAI_MONTHLY_BUDGET_USD is not configured.",
-      source: "official-api"
-    };
-  }
-
-  const { startTime, endTime, resetAt } = getMonthBoundsUtc(now);
   const url = new URL("https://api.openai.com/v1/organization/costs");
   url.searchParams.set("start_time", String(startTime));
   url.searchParams.set("end_time", String(endTime));
@@ -92,53 +122,107 @@ export async function getOpenAiApiSnapshot(
 
     if (response.status === 401 || response.status === 403) {
       return {
-        provider: "openai-api",
-        status: "unauthorized",
-        title: "OpenAI API Balance",
-        updatedAt,
-        message: "Unauthorized.",
-        source: "official-api"
+        snapshot: {
+          provider: "openai-api",
+          status: "unauthorized",
+          title: "OpenAI API Balance",
+          updatedAt,
+          message: "Unauthorized.",
+          source: "official-api"
+        },
+        periodStart,
+        periodEnd,
+        periodTimezone: "UTC",
+        budgetUsd,
+        budgetConfigured,
+        organizationHeaderConfigured,
+        endpoint: "/v1/organization/costs"
       };
     }
 
     if (!response.ok) {
       return {
-        provider: "openai-api",
-        status: "error",
-        title: "OpenAI API Balance",
-        updatedAt,
-        message: `OpenAI costs request failed (${response.status}).`,
-        source: "official-api"
+        snapshot: {
+          provider: "openai-api",
+          status: "error",
+          title: "OpenAI API Balance",
+          updatedAt,
+          message: `OpenAI costs request failed (${response.status}).`,
+          source: "official-api"
+        },
+        periodStart,
+        periodEnd,
+        periodTimezone: "UTC",
+        budgetUsd,
+        budgetConfigured,
+        organizationHeaderConfigured,
+        endpoint: "/v1/organization/costs"
       };
     }
 
     const payload = (await response.json()) as OpenAICostResponse;
     const usedUsd = Number(sumCosts(payload).toFixed(6));
-    const limitUsd = Number(config.OPENAI_MONTHLY_BUDGET_USD.toFixed(6));
-    const remainingUsd = Number((limitUsd - usedUsd).toFixed(6));
+    const snapshot =
+      typeof budgetUsd === "number"
+        ? {
+            provider: "openai-api" as const,
+            status: "ok" as const,
+            title: "OpenAI API Balance",
+            usedUsd,
+            limitUsd: budgetUsd,
+            remainingUsd: Number((budgetUsd - usedUsd).toFixed(6)),
+            unit: "usd" as const,
+            resetAt,
+            updatedAt,
+            message: "Monthly budget minus official OpenAI organization costs.",
+            source: "official-api" as const
+          }
+        : {
+            provider: "openai-api" as const,
+            status: "ok" as const,
+            title: "OpenAI API Balance",
+            usedUsd,
+            unit: "usd" as const,
+            updatedAt,
+            message: "Official OpenAI organization costs for the current month.",
+            source: "official-api" as const
+          };
 
     return {
-      provider: "openai-api",
-      status: "ok",
-      title: "OpenAI API Balance",
-      usedUsd,
-      limitUsd,
-      remainingUsd,
-      unit: "usd",
-      resetAt,
-      updatedAt,
-      message: "Monthly budget minus official OpenAI organization costs.",
-      source: "official-api"
+      snapshot,
+      periodStart,
+      periodEnd,
+      periodTimezone: "UTC",
+      budgetUsd,
+      budgetConfigured,
+      organizationHeaderConfigured,
+      endpoint: "/v1/organization/costs"
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Unknown error";
     return {
-      provider: "openai-api",
-      status: "error",
-      title: "OpenAI API Balance",
-      updatedAt,
-      message: `OpenAI costs request error: ${reason}`,
-      source: "official-api"
+      snapshot: {
+        provider: "openai-api",
+        status: "error",
+        title: "OpenAI API Balance",
+        updatedAt,
+        message: `OpenAI costs request error: ${reason}`,
+        source: "official-api"
+      },
+      periodStart,
+      periodEnd,
+      periodTimezone: "UTC",
+      budgetUsd,
+      budgetConfigured,
+      organizationHeaderConfigured,
+      endpoint: "/v1/organization/costs"
     };
   }
+}
+
+export async function getOpenAiApiSnapshot(
+  config: ProviderRuntimeConfig,
+  now: Date = new Date()
+): Promise<ProviderSnapshot> {
+  return (await getOpenAiApiDetails(config, now)).snapshot;
 }

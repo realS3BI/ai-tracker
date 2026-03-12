@@ -3,10 +3,13 @@ services:
     build:
       context: .
     restart: unless-stopped
+    init: true
     env_file:
-      - .env
+      - .env.prod
     ports:
-      - "${APP_BIND_PORT:-3000}:3000"
+      - "${APP_BIND_PORT:-3000}:${PORT:-3000}"
+    volumes:
+      - ai-cost-data:${APP_DATA_DIR:-/data}
     healthcheck:
       test: >-
         node -e "fetch('http://127.0.0.1:3000/api/health').then((response) =>
@@ -15,3 +18,6 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+
+volumes:
+  ai-cost-data:

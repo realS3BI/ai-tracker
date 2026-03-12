@@ -174,6 +174,7 @@ function dashboardHtml(): string {
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel);
+      margin-bottom: 16px;
     }
     table {
       width: 100%;
@@ -210,8 +211,62 @@ function dashboardHtml(): string {
       padding: 10px 14px;
       cursor: pointer;
     }
+    .details {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+    .detail-card {
+      background: linear-gradient(180deg, #ffffff, #fbfcff);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .detail-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .detail-title {
+      margin: 0;
+      font-size: 1.02rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .detail-status {
+      border-radius: 999px;
+      padding: 4px 9px;
+      background: #edf1f7;
+      color: #233043;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: minmax(110px, 150px) minmax(0, 1fr);
+      gap: 8px 12px;
+      margin: 0;
+    }
+    .detail-grid dt {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 600;
+    }
+    .detail-grid dd {
+      margin: 0;
+      font-size: 0.92rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
     @media (max-width: 800px) {
       .cards {
+        grid-template-columns: 1fr;
+      }
+      .details {
         grid-template-columns: 1fr;
       }
     }
@@ -232,6 +287,7 @@ function dashboardHtml(): string {
         <tbody id="table-body"></tbody>
       </table>
     </section>
+    <section class="details" id="provider-details"></section>
     <div class="toolbar">
       <button id="refresh-btn" type="button">Refresh Now</button>
       <button id="logout-btn" type="button">Logout</button>
@@ -242,6 +298,7 @@ function dashboardHtml(): string {
     const headEl = document.getElementById("table-head");
     const bodyEl = document.getElementById("table-body");
     const updatedEl = document.getElementById("updated-at");
+    const providerDetailsEl = document.getElementById("provider-details");
 
     function escapeHtml(value) {
       return String(value)
@@ -262,6 +319,18 @@ function dashboardHtml(): string {
       headEl.innerHTML = snapshot.headers.map((header) => "<th>" + escapeHtml(header) + "</th>").join("");
       bodyEl.innerHTML = snapshot.rows.map((row) => {
         return "<tr>" + row.map((cell) => "<td>" + escapeHtml(cell) + "</td>").join("") + "</tr>";
+      }).join("");
+      providerDetailsEl.innerHTML = snapshot.providerDetails.map((card) => {
+        const rows = card.entries.map((entry) => {
+          return "<dt>" + escapeHtml(entry.label) + "</dt><dd>" + escapeHtml(entry.value) + "</dd>";
+        }).join("");
+        return '<article class="detail-card">' +
+          '<div class="detail-head">' +
+            '<h2 class="detail-title">' + escapeHtml(card.title) + '</h2>' +
+            '<div class="detail-status">' + escapeHtml(card.status) + '</div>' +
+          '</div>' +
+          '<dl class="detail-grid">' + rows + '</dl>' +
+        '</article>';
       }).join("");
     }
 

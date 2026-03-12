@@ -1,7 +1,12 @@
 export type ProviderId = "openai-api" | "openai-codex" | "openrouter" | "cursor";
 export type ProviderStatus = "ok" | "unsupported" | "error" | "unauthorized";
 export type ProviderUnit = "usd" | "messages" | "requests";
-export type SnapshotSource = "official-api" | "official-docs-status" | "local-codex-session";
+export type SnapshotSource =
+  | "official-api"
+  | "official-dashboard-api"
+  | "official-docs-status"
+  | "local-codex-session"
+  | "codex-cache";
 
 export interface ProviderSnapshot {
   provider: ProviderId;
