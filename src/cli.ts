@@ -2,7 +2,6 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import prompts from "prompts";
-import type { SnapshotResponse } from "./types.js";
 import { extractCursorSessionToken, upsertEnvValue } from "./cli/cursor-cookie.js";
 import { DEFAULT_CLIENT_ENV_PATH, loadClientProviderConfig, resolveClientEnvPath } from "./cli/client-config.js";
 import {
@@ -14,11 +13,15 @@ import {
   setClientEnvPath,
   setStoredToken
 } from "./cli/credential-store.js";
-import { getCodexDetails, getCodexSnapshot } from "./providers/codex.js";
-import { getCursorDetails, getCursorSnapshot } from "./providers/cursor.js";
-import { getOpenAiApiDetails, getOpenAiApiSnapshot } from "./providers/openaiApi.js";
-import { getOpenRouterDetails, getOpenRouterSnapshot } from "./providers/openrouter.js";
+import { getCodexDetails } from "./providers/codex.js";
+import { getCursorDetails } from "./providers/cursor.js";
+import { getOpenAiApiDetails } from "./providers/openaiApi.js";
+import { getOpenRouterDetails } from "./providers/openrouter.js";
 import {
+  createCodexDetailCard,
+  createCursorDetailCard,
+  createOpenAiDetailCard,
+  createOpenRouterDetailCard,
   formatCodexDetailsOutput,
   formatCursorDetailsOutput,
   formatOpenAiDetailsOutput,
@@ -26,7 +29,14 @@ import {
 } from "./provider-detail-view.js";
 import { renderTable } from "./snapshot-view.js";
 import type { ClientProviderConfig } from "./cli/client-config.js";
-import type { ProviderId, ProviderSnapshot } from "./types.js";
+import type {
+  CliJsonOutput,
+  CliSnapshotUploadRequest,
+  ProviderDetailCard,
+  ProviderId,
+  ProviderSnapshot,
+  SnapshotResponse
+} from "./types.js";
 
 export { renderTable } from "./snapshot-view.js";
 export {
@@ -47,6 +57,15 @@ interface CliOptions {
   value?: string;
   envFile?: string;
   stdout: boolean;
+}
+
+interface LocalProviderBundle {
+  codex: Awaited<ReturnType<typeof getCodexDetails>>;
+  openaiApi?: Awaited<ReturnType<typeof getOpenAiApiDetails>>;
+  openrouter?: Awaited<ReturnType<typeof getOpenRouterDetails>>;
+  cursor?: Awaited<ReturnType<typeof getCursorDetails>>;
+  providers: ProviderSnapshot[];
+  providerDetails: ProviderDetailCard[];
 }
 
 export function parseArgs(argv: string[]): CliOptions {
@@ -121,11 +140,22 @@ function ensureBackendUrl(input: string): string {
   return parsed.toString().replace(/\/+$/, "");
 }
 
-export function formatSnapshotOutput(snapshot: SnapshotResponse, jsonOutput: boolean): string {
-  if (jsonOutput) {
-    return JSON.stringify(snapshot, null, 2);
+function formatOutputWithNotices(output: string, jsonOutput: boolean, notices: string[]): string {
+  if (notices.length === 0) {
+    return output;
   }
-  return renderTable(snapshot);
+
+  if (jsonOutput) {
+    const parsed = JSON.parse(output) as CliJsonOutput | Record<string, unknown>;
+    return JSON.stringify({ ...parsed, notices }, null, 2);
+  }
+
+  return [output, ...notices].join("\n");
+}
+
+export function formatSnapshotOutput(snapshot: SnapshotResponse, jsonOutput: boolean, notices: string[] = []): string {
+  const output = jsonOutput ? JSON.stringify(snapshot, null, 2) : renderTable(snapshot);
+  return formatOutputWithNotices(output, jsonOutput, notices);
 }
 
 export function printHelp(): void {
@@ -239,6 +269,29 @@ async function fetchRemoteSnapshot(backendUrl: string, token: string): Promise<S
   return (await response.json()) as SnapshotResponse;
 }
 
+async function uploadCliSnapshotCache(
+  backendUrl: string,
+  token: string,
+  payload: CliSnapshotUploadRequest
+): Promise<void> {
+  const response = await fetch(`${backendUrl}/api/cli/cache/snapshot`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (response.status === 401) {
+    throw new Error("Token rejected. Run `ai-cost login` again.");
+  }
+
+  if (!response.ok) {
+    throw new Error(`Cache upload failed (${response.status}).`);
+  }
+}
+
 function createMissingProviderSnapshot(provider: ProviderId, updatedAt: string, message: string): ProviderSnapshot {
   switch (provider) {
     case "openai-codex":
@@ -284,22 +337,90 @@ function hasLocalOpenAiConfig(config: ClientProviderConfig): boolean {
   return Boolean(config.OPENAI_API_KEY || config.OPENAI_ORG_ID || typeof config.OPENAI_MONTHLY_BUDGET_USD === "number");
 }
 
-async function getLocalProviderSnapshots(config: ClientProviderConfig, now: Date): Promise<ProviderSnapshot[]> {
-  const providers: Promise<ProviderSnapshot>[] = [getCodexSnapshot(config, now)];
+function createLocalProviderCards(bundle: {
+  codex: Awaited<ReturnType<typeof getCodexDetails>>;
+  openaiApi?: Awaited<ReturnType<typeof getOpenAiApiDetails>>;
+  openrouter?: Awaited<ReturnType<typeof getOpenRouterDetails>>;
+  cursor?: Awaited<ReturnType<typeof getCursorDetails>>;
+}): ProviderDetailCard[] {
+  const cards: ProviderDetailCard[] = [createCodexDetailCard(bundle.codex)];
 
-  if (config.CURSOR_DASHBOARD_COOKIE) {
-    providers.push(getCursorSnapshot(config, now));
+  if (bundle.openaiApi) {
+    cards.push(createOpenAiDetailCard(bundle.openaiApi));
   }
 
-  if (hasLocalOpenAiConfig(config)) {
-    providers.push(getOpenAiApiSnapshot(config, now));
+  if (bundle.openrouter) {
+    cards.push(createOpenRouterDetailCard(bundle.openrouter));
   }
 
-  if (config.OPENROUTER_API_KEY) {
-    providers.push(getOpenRouterSnapshot(config, now));
+  if (bundle.cursor) {
+    cards.push(createCursorDetailCard(bundle.cursor));
   }
 
-  return await Promise.all(providers);
+  return cards;
+}
+
+async function getLocalProviderBundle(config: ClientProviderConfig, now: Date): Promise<LocalProviderBundle> {
+  const [codex, cursor, openaiApi, openrouter] = await Promise.all([
+    getCodexDetails(config, now),
+    config.CURSOR_DASHBOARD_COOKIE ? getCursorDetails(config, now) : Promise.resolve(undefined),
+    hasLocalOpenAiConfig(config) ? getOpenAiApiDetails(config, now) : Promise.resolve(undefined),
+    config.OPENROUTER_API_KEY ? getOpenRouterDetails(config, now) : Promise.resolve(undefined)
+  ]);
+
+  const providers: ProviderSnapshot[] = [codex.snapshot];
+  if (openaiApi) {
+    providers.push(openaiApi.snapshot);
+  }
+  if (openrouter) {
+    providers.push(openrouter.snapshot);
+  }
+  if (cursor) {
+    providers.push(cursor.snapshot);
+  }
+
+  return {
+    codex,
+    openaiApi,
+    openrouter,
+    cursor,
+    providers,
+    providerDetails: createLocalProviderCards({
+      codex,
+      openaiApi,
+      openrouter,
+      cursor
+    })
+  };
+}
+
+function createSyncPayload(command: string, bundle: LocalProviderBundle, now: Date): CliSnapshotUploadRequest {
+  return {
+    generatedAt: now.toISOString(),
+    command,
+    providers: bundle.providers,
+    providerDetails: bundle.providerDetails
+  };
+}
+
+async function syncLocalProviderCache(
+  command: string,
+  backendUrl: string,
+  token: string | null,
+  bundle: LocalProviderBundle,
+  now: Date
+): Promise<string | undefined> {
+  if (!token) {
+    return undefined;
+  }
+
+  try {
+    await uploadCliSnapshotCache(backendUrl, token, createSyncPayload(command, bundle, now));
+    return undefined;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Unknown sync error.";
+    return `Sync notice: ${reason}`;
+  }
 }
 
 export function mergeProviderSnapshots(
@@ -452,48 +573,70 @@ async function runInit(urlOption?: string, envFileOption?: string): Promise<void
 async function runShow(jsonOutput: boolean, urlOption?: string, envFileOption?: string): Promise<void> {
   const now = new Date();
   const localConfig = await loadClientProviderConfig(envFileOption);
-  const localProviders = await getLocalProviderSnapshots(localConfig, now);
+  const localBundle = await getLocalProviderBundle(localConfig, now);
   const backendUrl = ensureBackendUrl(urlOption ?? (await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
   const token = await getStoredToken();
   let remoteSnapshot: SnapshotResponse | null = null;
   let remoteError: string | undefined;
+  let remoteNotice: string | undefined;
 
   if (token) {
     try {
       remoteSnapshot = await fetchRemoteSnapshot(backendUrl, token);
     } catch (error) {
       remoteError = error instanceof Error ? error.message : "Backend snapshot unavailable.";
+      remoteNotice = `Server notice: ${remoteError}`;
     }
   } else {
     remoteError = "No CLI token found. Run `ai-cost init` / `ai-cost login` or configure local credentials.";
   }
 
-  const snapshot = mergeProviderSnapshots(remoteSnapshot, localProviders, now.toISOString(), remoteError);
-  console.log(formatSnapshotOutput(snapshot, jsonOutput));
+  const syncNotice = await syncLocalProviderCache("show", backendUrl, token, localBundle, now);
+  const snapshot = mergeProviderSnapshots(remoteSnapshot, localBundle.providers, now.toISOString(), remoteError);
+  console.log(formatSnapshotOutput(snapshot, jsonOutput, [remoteNotice, syncNotice].filter((value): value is string => Boolean(value))));
 }
 
 async function runCursor(jsonOutput: boolean, envFileOption?: string, showModels = false): Promise<void> {
+  const now = new Date();
   const localConfig = await loadClientProviderConfig(envFileOption);
-  const details = await getCursorDetails(localConfig, new Date());
-  console.log(formatCursorDetailsOutput(details, jsonOutput, showModels));
+  const localBundle = await getLocalProviderBundle(localConfig, now);
+  const backendUrl = ensureBackendUrl((await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
+  const token = await getStoredToken();
+  const syncNotice = await syncLocalProviderCache(showModels ? "cursor --models" : "cursor", backendUrl, token, localBundle, now);
+  const details = localBundle.cursor ?? (await getCursorDetails(localConfig, now));
+  console.log(formatOutputWithNotices(formatCursorDetailsOutput(details, jsonOutput, showModels), jsonOutput, [syncNotice].filter((value): value is string => Boolean(value))));
 }
 
 async function runCodex(jsonOutput: boolean, envFileOption?: string): Promise<void> {
+  const now = new Date();
   const localConfig = await loadClientProviderConfig(envFileOption);
-  const details = await getCodexDetails(localConfig, new Date());
-  console.log(formatCodexDetailsOutput(details, jsonOutput));
+  const localBundle = await getLocalProviderBundle(localConfig, now);
+  const backendUrl = ensureBackendUrl((await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
+  const token = await getStoredToken();
+  const syncNotice = await syncLocalProviderCache("codex", backendUrl, token, localBundle, now);
+  console.log(formatOutputWithNotices(formatCodexDetailsOutput(localBundle.codex, jsonOutput), jsonOutput, [syncNotice].filter((value): value is string => Boolean(value))));
 }
 
 async function runOpenAi(jsonOutput: boolean, envFileOption?: string): Promise<void> {
+  const now = new Date();
   const localConfig = await loadClientProviderConfig(envFileOption);
-  const details = await getOpenAiApiDetails(localConfig, new Date());
-  console.log(formatOpenAiDetailsOutput(details, jsonOutput));
+  const localBundle = await getLocalProviderBundle(localConfig, now);
+  const backendUrl = ensureBackendUrl((await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
+  const token = await getStoredToken();
+  const syncNotice = await syncLocalProviderCache("openai", backendUrl, token, localBundle, now);
+  const details = localBundle.openaiApi ?? (await getOpenAiApiDetails(localConfig, now));
+  console.log(formatOutputWithNotices(formatOpenAiDetailsOutput(details, jsonOutput), jsonOutput, [syncNotice].filter((value): value is string => Boolean(value))));
 }
 
 async function runOpenRouter(jsonOutput: boolean, envFileOption?: string): Promise<void> {
+  const now = new Date();
   const localConfig = await loadClientProviderConfig(envFileOption);
-  const details = await getOpenRouterDetails(localConfig, new Date());
-  console.log(formatOpenRouterDetailsOutput(details, jsonOutput));
+  const localBundle = await getLocalProviderBundle(localConfig, now);
+  const backendUrl = ensureBackendUrl((await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
+  const token = await getStoredToken();
+  const syncNotice = await syncLocalProviderCache("openrouter", backendUrl, token, localBundle, now);
+  const details = localBundle.openrouter ?? (await getOpenRouterDetails(localConfig, now));
+  console.log(formatOutputWithNotices(formatOpenRouterDetailsOutput(details, jsonOutput), jsonOutput, [syncNotice].filter((value): value is string => Boolean(value))));
 }
 
 async function readStdin(): Promise<string> {

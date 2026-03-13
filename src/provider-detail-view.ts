@@ -1,21 +1,9 @@
-import type { ProviderSnapshot } from "./types.js";
+import type { ProviderDetailCard, ProviderDetailEntry, ProviderSnapshot } from "./types.js";
 import type { CodexDetails, CodexRateWindowDetails } from "./providers/codex.js";
 import type { CursorDetails } from "./providers/cursor.js";
 import type { OpenAiApiDetails } from "./providers/openaiApi.js";
 import type { OpenRouterDetails } from "./providers/openrouter.js";
 import { formatMoney, formatProviderStatus, formatResetValue, providerLabel, renderTextTable } from "./snapshot-view.js";
-
-export interface ProviderDetailEntry {
-  label: string;
-  value: string;
-}
-
-export interface ProviderDetailCard {
-  provider: ProviderSnapshot["provider"];
-  title: string;
-  status: string;
-  entries: ProviderDetailEntry[];
-}
 
 const INTEGER_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0

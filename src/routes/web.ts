@@ -176,6 +176,19 @@ function dashboardHtml(): string {
       background: var(--panel);
       margin-bottom: 16px;
     }
+    .server-notice {
+      display: none;
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #e5b566;
+      background: #fff6e5;
+      color: #6a4b14;
+      line-height: 1.4;
+    }
+    .server-notice.visible {
+      display: block;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -287,6 +300,7 @@ function dashboardHtml(): string {
         <tbody id="table-body"></tbody>
       </table>
     </section>
+    <section class="server-notice" id="server-notice" aria-live="polite"></section>
     <section class="details" id="provider-details"></section>
     <div class="toolbar">
       <button id="refresh-btn" type="button">Refresh Now</button>
@@ -299,6 +313,7 @@ function dashboardHtml(): string {
     const bodyEl = document.getElementById("table-body");
     const updatedEl = document.getElementById("updated-at");
     const providerDetailsEl = document.getElementById("provider-details");
+    const serverNoticeEl = document.getElementById("server-notice");
 
     function escapeHtml(value) {
       return String(value)
@@ -334,17 +349,34 @@ function dashboardHtml(): string {
       }).join("");
     }
 
+    function clearServerNotice() {
+      serverNoticeEl.textContent = "";
+      serverNoticeEl.classList.remove("visible");
+    }
+
+    function setServerNotice(message) {
+      serverNoticeEl.textContent = message;
+      serverNoticeEl.classList.add("visible");
+    }
+
     async function loadSnapshot() {
-      const response = await fetch("/api/snapshot", { credentials: "same-origin" });
-      if (response.status === 401) {
-        location.href = "/login";
-        return;
+      try {
+        const response = await fetch("/api/snapshot", { credentials: "same-origin" });
+        if (response.status === 401) {
+          location.href = "/login";
+          return;
+        }
+        if (!response.ok) {
+          throw new Error("Snapshot failed: " + response.status);
+        }
+        const snapshot = await response.json();
+        render(snapshot);
+        clearServerNotice();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Unknown snapshot error.";
+        setServerNotice("Server refresh failed. Showing the last available data. " + reason);
+        throw error;
       }
-      if (!response.ok) {
-        throw new Error("Snapshot failed: " + response.status);
-      }
-      const snapshot = await response.json();
-      render(snapshot);
     }
 
     async function logout() {

@@ -118,8 +118,8 @@ export function providerLabel(provider: ProviderSnapshot): string {
 }
 
 export function formatProviderStatus(provider: ProviderSnapshot): string {
-  if (provider.status === "ok" && provider.source === "codex-cache") {
-    return "ok (cached)";
+  if (provider.source === "codex-cache" || provider.source === "cli-upload-cache") {
+    return `${provider.status} (cached)`;
   }
 
   return provider.status;

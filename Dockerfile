@@ -6,7 +6,23 @@ COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY . .
-RUN --mount=type=secret,id=build_env,target=/run/secrets/build_env DOTENV_CONFIG_PATH=/run/secrets/build_env pnpm build
+ARG NODE_ENV=production
+ARG HOST=0.0.0.0
+ARG PORT=3000
+ARG OPENAI_API_KEY
+ARG OPENAI_ORG_ID
+ARG OPENAI_MONTHLY_BUDGET_USD
+ARG OPENROUTER_API_KEY
+ARG CODEX_HOME
+ARG CURSOR_DASHBOARD_COOKIE
+ARG CURSOR_TEAM_ID=-1
+ARG APP_PASSWORD_HASH
+ARG APP_SESSION_SECRET
+ARG APP_TOKEN_SECRET
+ARG APP_SECURE_COOKIE=true
+ARG CLI_TOKEN_TTL_SECONDS=2592000
+ARG PROVIDER_TIMEOUT_MS=10000
+RUN pnpm build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app

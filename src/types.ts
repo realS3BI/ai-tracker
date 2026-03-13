@@ -6,7 +6,8 @@ export type SnapshotSource =
   | "official-dashboard-api"
   | "official-docs-status"
   | "local-codex-session"
-  | "codex-cache";
+  | "codex-cache"
+  | "cli-upload-cache";
 
 export interface ProviderSnapshot {
   provider: ProviderId;
@@ -29,4 +30,33 @@ export interface ProviderSnapshot {
 export interface SnapshotResponse {
   generatedAt: string;
   providers: ProviderSnapshot[];
+}
+
+export interface ProviderDetailEntry {
+  label: string;
+  value: string;
+}
+
+export interface ProviderDetailCard {
+  provider: ProviderSnapshot["provider"];
+  title: string;
+  status: string;
+  entries: ProviderDetailEntry[];
+}
+
+export interface CliSnapshotUploadRequest {
+  generatedAt: string;
+  command: string;
+  providers: ProviderSnapshot[];
+  providerDetails: ProviderDetailCard[];
+}
+
+export interface CliSnapshotUploadResponse {
+  ok: true;
+  storedAt: string;
+  providersStored: number;
+}
+
+export interface CliJsonOutput extends SnapshotResponse {
+  notices?: string[];
 }

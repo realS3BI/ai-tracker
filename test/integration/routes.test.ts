@@ -4,6 +4,21 @@ import type { AppConfig } from "../../src/config.js";
 import { hashPassword } from "../../src/auth/password.js";
 import { makeConfig } from "../helpers.js";
 
+async function loginAndGetCookie(app: Awaited<ReturnType<typeof buildApp>>): Promise<string> {
+  const login = await app.inject({
+    method: "POST",
+    path: "/api/auth/login",
+    payload: {
+      password: "my-password"
+    }
+  });
+
+  expect(login.statusCode).toBe(200);
+  const cookie = login.headers["set-cookie"];
+  expect(cookie).toBeTruthy();
+  return Array.isArray(cookie) ? cookie[0] : cookie ?? "";
+}
+
 function installProviderFetchMock(options?: {
   openaiStatus?: number;
   openrouterStatus?: number;
@@ -92,23 +107,13 @@ describe("auth + snapshot routes", () => {
 
   it("allows session-authenticated snapshot after login", async () => {
     const app = await buildApp(config);
-
-    const login = await app.inject({
-      method: "POST",
-      path: "/api/auth/login",
-      payload: {
-        password: "my-password"
-      }
-    });
-    expect(login.statusCode).toBe(200);
-    const cookie = login.headers["set-cookie"];
-    expect(cookie).toBeTruthy();
+    const cookie = await loginAndGetCookie(app);
 
     const snapshot = await app.inject({
       method: "GET",
       path: "/api/snapshot",
       headers: {
-        cookie: Array.isArray(cookie) ? cookie[0] : cookie
+        cookie
       }
     });
 
@@ -139,21 +144,13 @@ describe("auth + snapshot routes", () => {
   it("returns mixed provider statuses when one provider fails", async () => {
     installProviderFetchMock({ openaiStatus: 500, openrouterStatus: 200 });
     const app = await buildApp(config);
-
-    const login = await app.inject({
-      method: "POST",
-      path: "/api/auth/login",
-      payload: {
-        password: "my-password"
-      }
-    });
-    const cookie = login.headers["set-cookie"];
+    const cookie = await loginAndGetCookie(app);
 
     const snapshot = await app.inject({
       method: "GET",
       path: "/api/snapshot",
       headers: {
-        cookie: Array.isArray(cookie) ? cookie[0] : cookie
+        cookie
       }
     });
 
@@ -169,28 +166,109 @@ describe("auth + snapshot routes", () => {
     await app.close();
   }, 15000);
 
-  it("serves the dashboard html with provider detail section after login", async () => {
+  it("stores uploaded cli snapshots and falls back to them when live providers fail", async () => {
+    installProviderFetchMock({ openaiStatus: 500, openrouterStatus: 200 });
     const app = await buildApp(config);
+    const cookie = await loginAndGetCookie(app);
 
-    const login = await app.inject({
+    const upload = await app.inject({
       method: "POST",
-      path: "/api/auth/login",
+      path: "/api/cli/cache/snapshot",
+      headers: {
+        cookie
+      },
       payload: {
-        password: "my-password"
+        generatedAt: "2026-03-09T20:55:00.000Z",
+        command: "show",
+        providers: [
+          {
+            provider: "openai-api",
+            status: "ok",
+            title: "OpenAI API Balance",
+            usedUsd: 22,
+            remainingUsd: 78,
+            limitUsd: 100,
+            unit: "usd",
+            updatedAt: "2026-03-09T20:55:00.000Z",
+            message: "Cached OpenAI data",
+            source: "official-api"
+          }
+        ],
+        providerDetails: [
+          {
+            provider: "openai-api",
+            title: "OpenAI API",
+            status: "ok",
+            entries: [
+              { label: "Status", value: "ok" },
+              { label: "Updated", value: "2026-03-09T20:55:00.000Z" },
+              { label: "Source", value: "official-api" }
+            ]
+          }
+        ]
       }
     });
-    const cookie = login.headers["set-cookie"];
+
+    expect(upload.statusCode).toBe(200);
+    expect(upload.json()).toMatchObject({
+      ok: true,
+      providersStored: 1
+    });
+
+    const snapshot = await app.inject({
+      method: "GET",
+      path: "/api/snapshot",
+      headers: {
+        cookie
+      }
+    });
+
+    expect(snapshot.statusCode).toBe(200);
+    const payload = snapshot.json();
+    const openai = payload.providers.find((provider: { provider: string }) => provider.provider === "openai-api");
+    const openaiCard = payload.providerDetails.find((card: { provider: string }) => card.provider === "openai-api");
+
+    expect(openai.status).toBe("ok");
+    expect(openai.source).toBe("cli-upload-cache");
+    expect(openai.message).toBe("Cached OpenAI data");
+    expect(openaiCard.status).toBe("ok (cached)");
+    expect(openaiCard.entries.find((entry: { label: string }) => entry.label === "Source")?.value).toBe("cli-upload-cache");
+
+    await app.close();
+  }, 15000);
+
+  it("denies cli cache uploads without auth", async () => {
+    const app = await buildApp(config);
+    const response = await app.inject({
+      method: "POST",
+      path: "/api/cli/cache/snapshot",
+      payload: {
+        generatedAt: "2026-03-09T20:55:00.000Z",
+        command: "show",
+        providers: [],
+        providerDetails: []
+      }
+    });
+
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  }, 15000);
+
+  it("serves the dashboard html with provider detail section after login", async () => {
+    const app = await buildApp(config);
+    const cookie = await loginAndGetCookie(app);
 
     const response = await app.inject({
       method: "GET",
       path: "/",
       headers: {
-        cookie: Array.isArray(cookie) ? cookie[0] : cookie
+        cookie
       }
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('id="provider-details"');
+    expect(response.body).toContain('id="server-notice"');
     expect(response.body).toContain("detail-card");
 
     await app.close();

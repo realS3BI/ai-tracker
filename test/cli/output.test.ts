@@ -97,11 +97,40 @@ describe("cli output", () => {
     expect(output).toContain("ok (cached)");
   });
 
+  it("renders cli-upload cache values with cached status labels", () => {
+    const output = renderTable({
+      generatedAt: "2026-03-09T10:00:00.000Z",
+      providers: [
+        {
+          provider: "openai-api",
+          status: "error",
+          title: "OpenAI API Balance",
+          updatedAt: "2026-03-09T10:00:00.000Z",
+          message: "Cached upload",
+          source: "cli-upload-cache"
+        }
+      ]
+    });
+
+    expect(output).toContain("error (cached)");
+  });
+
   it("renders raw json output", () => {
-    const output = formatSnapshotOutput(sampleSnapshot, true);
-    const parsed = JSON.parse(output) as SnapshotResponse;
+    const output = formatSnapshotOutput(sampleSnapshot, true, ["Server notice: Backend snapshot unavailable."]);
+    const parsed = JSON.parse(output) as SnapshotResponse & { notices?: string[] };
     expect(parsed.providers).toHaveLength(4);
     expect(parsed.generatedAt).toBe("2026-03-09T10:00:00.000Z");
+    expect(parsed.notices).toEqual(["Server notice: Backend snapshot unavailable."]);
+  });
+
+  it("renders text notices directly after the table", () => {
+    const output = formatSnapshotOutput(sampleSnapshot, false, [
+      "Server notice: Backend snapshot unavailable.",
+      "Sync notice: Cache upload failed."
+    ]);
+
+    expect(output).toContain("Server notice: Backend snapshot unavailable.");
+    expect(output).toContain("Sync notice: Cache upload failed.");
   });
 
   it("renders detailed cursor output", () => {
