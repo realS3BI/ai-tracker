@@ -3,8 +3,8 @@ import { z } from "zod";
 
 const serverSchema = {
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  HOST: z.string().default("0.0.0.0"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  HOST: z.string(),
+  PORT: z.coerce.number().int().min(1).max(65535),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_ORG_ID: z.string().min(1).optional(),
   OPENAI_MONTHLY_BUDGET_USD: z.coerce.number().positive().optional(),
