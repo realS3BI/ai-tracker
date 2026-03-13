@@ -2,6 +2,8 @@ services:
   ai-cost:
     build:
       context: .
+      secrets:
+        - build_env
     restart: unless-stopped
     init: true
     env_file:
@@ -15,3 +17,7 @@ services:
 
 volumes:
   ai-cost-data:
+
+secrets:
+  build_env:
+    file: ${BUILD_ENV_FILE:-.env.prod}

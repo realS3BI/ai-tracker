@@ -1,14 +1,13 @@
-import argon2 from "argon2";
+import { hashPassword } from "../src/auth/password.js";
 
-async function main(): Promise<void> {
+function main(): void {
   const password = process.argv[2];
   if (!password) {
-    console.error("Usage: pnpm tsx scripts/hash-password.ts <password>");
+    console.error("Usage: pnpm hash-password <password>");
     process.exit(1);
   }
 
-  const hash = await argon2.hash(password);
-  console.log(hash);
+  console.log(hashPassword(password));
 }
 
-void main();
+main();

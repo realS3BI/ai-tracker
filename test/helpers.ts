@@ -16,7 +16,7 @@ export function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     APP_DATA_DIR: path.join(tmpdir(), "ai-cost-tests", randomUUID()),
     CURSOR_DASHBOARD_COOKIE: "WorkosCursorSessionToken=test-cookie",
     CURSOR_TEAM_ID: -1,
-    APP_PASSWORD_HASH: "$argon2id$v=19$m=65536,t=3,p=4$dummy$dummy",
+    APP_PASSWORD_HASH: "taLJYlBhI2bqJy/6xtl0Sq9LRarNlqp8/Lkx7jtVglk=",
     APP_SESSION_SECRET: "session-secret-123456",
     APP_TOKEN_SECRET: "token-secret-123456",
     APP_SECURE_COOKIE: false,

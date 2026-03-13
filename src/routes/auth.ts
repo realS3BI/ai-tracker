@@ -30,7 +30,7 @@ export async function registerAuthRoutes(app: FastifyInstance, config: AppConfig
         });
       }
 
-      const ok = await verifyPassword(parsed.data.password, config.APP_PASSWORD_HASH);
+      const ok = verifyPassword(parsed.data.password, config.APP_PASSWORD_HASH);
       if (!ok) {
         return reply.code(401).send({
           error: "unauthorized",

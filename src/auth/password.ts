@@ -1,8 +1,14 @@
-import argon2 from "argon2";
+import { createHash, timingSafeEqual } from "node:crypto";
 
-export async function verifyPassword(password: string, passwordHash: string): Promise<boolean> {
+export function hashPassword(password: string): string {
+  return createHash("sha256").update(password, "utf8").digest("base64");
+}
+
+export function verifyPassword(password: string, passwordHash: string): boolean {
   try {
-    return await argon2.verify(passwordHash, password);
+    const computed = hashPassword(password);
+    if (computed.length !== passwordHash.length) return false;
+    return timingSafeEqual(Buffer.from(computed, "utf8"), Buffer.from(passwordHash, "utf8"));
   } catch {
     return false;
   }

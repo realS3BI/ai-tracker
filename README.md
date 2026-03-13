@@ -59,7 +59,7 @@ pnpm hash-password "your-password"
 
 2. Fill `.env.prod` with the real values.
 
-3. Start the service:
+3. Start the service. The Docker build now validates required envs from `.env.prod`, so missing secrets fail during image build instead of only at container startup:
 
 ```bash
 docker compose --env-file .env.prod up -d --build
@@ -113,6 +113,8 @@ If you want Codex usage from inside the backend container, add a bind mount from
 pnpm install --frozen-lockfile
 pnpm build
 ```
+
+`pnpm build` now runs the same required-env validation as server startup, using `.env` in the repo root by default via `dotenv`.
 
 3. Copy `deploy/ai-cost.service` to `/etc/systemd/system/ai-cost.service` and adjust paths/user if needed.
 

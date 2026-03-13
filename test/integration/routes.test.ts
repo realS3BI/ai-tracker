@@ -1,7 +1,7 @@
-import argon2 from "argon2";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { AppConfig } from "../../src/config.js";
+import { hashPassword } from "../../src/auth/password.js";
 import { makeConfig } from "../helpers.js";
 
 function installProviderFetchMock(options?: {
@@ -62,12 +62,12 @@ function installProviderFetchMock(options?: {
 describe("auth + snapshot routes", () => {
   let config: AppConfig;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-03-09T21:00:00.000Z"));
     installProviderFetchMock();
     config = makeConfig({
-      APP_PASSWORD_HASH: await argon2.hash("my-password"),
+      APP_PASSWORD_HASH: hashPassword("my-password"),
       APP_SECURE_COOKIE: false,
       appSecureCookie: false
     });

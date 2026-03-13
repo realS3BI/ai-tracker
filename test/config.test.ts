@@ -9,7 +9,7 @@ const validEnv: NodeJS.ProcessEnv = {
   OPENROUTER_API_KEY: "or-test",
   APP_DATA_DIR: "/tmp/ai-cost-test",
   CURSOR_TEAM_ID: "-1",
-  APP_PASSWORD_HASH: "$argon2id$v=19$m=65536,t=3,p=4$dummy$dummy",
+  APP_PASSWORD_HASH: "taLJYlBhI2bqJy/6xtl0Sq9LRarNlqp8/Lkx7jtVglk=",
   APP_SESSION_SECRET: "session-secret-123456",
   APP_TOKEN_SECRET: "token-secret-123456",
   APP_SECURE_COOKIE: "false",

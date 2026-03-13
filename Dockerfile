@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
@@ -5,7 +6,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm build
+RUN --mount=type=secret,id=build_env,target=/run/secrets/build_env DOTENV_CONFIG_PATH=/run/secrets/build_env pnpm build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
