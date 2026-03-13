@@ -1,6 +1,6 @@
 {
   "name": "@reals3bi/ai-cost",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AI cost tracker with hosted backend, CLI, and simple web dashboard.",
   "license": "MIT",
   "type": "module",
