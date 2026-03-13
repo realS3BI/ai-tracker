@@ -99,7 +99,7 @@ Optional for a backend-side Codex bind mount:
 CODEX_HOST_PATH=/absolute/path/to/.codex
 ```
 
-Coolify note: use the same keys from `.env.prod` in the Coolify environment UI. For the prepared Compose stack, keep the service data path fixed at `/data`; the persistent storage is provided by the `ai-cost-data` volume mapping in `compose.yaml`.
+Coolify note: use the same keys from `.env.prod` in the Coolify environment UI. For the prepared Compose stack, keep the service data path fixed at `/data`; the persistent storage is provided by the `ai-cost-data` volume mapping in `compose.yaml`. The Dockerfile intentionally uses a Debian-based Node image instead of Alpine so native modules such as the session crypto dependency can load reliably in production.
 
 If you want Codex usage from inside the backend container, add a bind mount from `CODEX_HOST_PATH` to a container path like `/codex` and set `CODEX_HOME=/codex`. In the common hosted setup you usually leave `CODEX_HOME` empty and let each CLI read Codex locally on its own machine.
 
