@@ -147,6 +147,10 @@ pnpm build
 node dist/src/cli.js init --url http://localhost:3000
 node dist/src/cli.js
 node dist/src/cli.js --json
+node dist/src/cli.js --version
+node dist/src/cli.js env download
+node dist/src/cli.js env upload
+node dist/src/cli.js update
 node dist/src/cli.js cursor
 node dist/src/cli.js codex
 node dist/src/cli.js openai
@@ -167,6 +171,8 @@ When you run `ai-cost`, local provider values override the hosted backend for th
 `ai-cost codex` reads the local Codex session files and fallback cache and prints the detailed rate-limit windows plus technical source metadata.
 `ai-cost openai` reads the local OpenAI API settings and prints detailed current-month billing data for the `openai-api` provider.
 `ai-cost openrouter` reads the local OpenRouter API key and prints detailed credits data, including per-key limit metadata when the endpoint returns it.
+`ai-cost env download` pulls the syncable provider env values from the backend into the local CLI env file, and `ai-cost env upload` pushes the local syncable values back to the backend.
+`ai-cost update` installs the latest published npm version globally, and `ai-cost --version` prints the installed CLI version.
 The web dashboard mirrors these provider-specific details in dedicated detail cards below the overview table.
 
 `cursor-cookie` extracts `WorkosCursorSessionToken` from a pasted cookie header, a copied `curl` command, or a raw token value and writes `CURSOR_DASHBOARD_COOKIE` into the local CLI env file. Use `--stdout` if you only want the extracted token printed.
@@ -182,7 +188,7 @@ npm install -g @reals3bi/ai-cost
 Update later:
 
 ```bash
-npm update -g @reals3bi/ai-cost
+ai-cost update
 ```
 
 Then use:
@@ -190,6 +196,8 @@ Then use:
 ```bash
 ai-cost init --url https://your-backend.example.com
 ai-cost
+ai-cost --version
+ai-cost env download
 ai-cost codex
 ai-cost openai
 ai-cost openrouter

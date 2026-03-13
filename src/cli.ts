@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import prompts from "prompts";
 import { extractCursorSessionToken } from "./cli/cursor-cookie.js";
 import { DEFAULT_CLIENT_ENV_PATH, loadClientProviderConfig, resolveClientEnvPath } from "./cli/client-config.js";
@@ -13,8 +15,8 @@ import {
   setClientEnvPath,
   setStoredToken
 } from "./cli/credential-store.js";
-import type { SyncableEnvValues } from "./env-sync.js";
-import { upsertEnvValue } from "./env-file.js";
+import { SYNCABLE_ENV_KEYS, pickSyncableEnvValues, type SyncableEnvValues } from "./env-sync.js";
+import { readEnvFile, upsertEnvValue } from "./env-file.js";
 import { getCodexDetails } from "./providers/codex.js";
 import { getCursorDetails } from "./providers/cursor.js";
 import { getOpenAiApiDetails } from "./providers/openaiApi.js";
@@ -52,6 +54,12 @@ export {
 const DEFAULT_BACKEND_URL = "http://localhost:3000";
 const PROVIDER_ORDER: ProviderId[] = ["openai-codex", "openai-api", "openrouter", "cursor"];
 const PROMPT_ABORT_EXIT_CODE = 130;
+const PACKAGE_JSON_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
+
+interface PackageMetadata {
+  name: string;
+  version: string;
+}
 
 export class PromptAbortedError extends Error {
   constructor() {
@@ -61,7 +69,21 @@ export class PromptAbortedError extends Error {
 }
 
 interface CliOptions {
-  command: "show" | "login" | "logout" | "cursor" | "codex" | "openai" | "openrouter" | "cursor-cookie" | "init" | "help";
+  command:
+    | "show"
+    | "login"
+    | "logout"
+    | "cursor"
+    | "codex"
+    | "openai"
+    | "openrouter"
+    | "cursor-cookie"
+    | "init"
+    | "help"
+    | "version"
+    | "env-download"
+    | "env-upload"
+    | "update";
   json: boolean;
   models: boolean;
   url?: string;
@@ -106,6 +128,7 @@ export function parseArgs(argv: string[]): CliOptions {
     const arg = argv[index];
 
     if (
+      arg === "env" ||
       arg === "login" ||
       arg === "logout" ||
       arg === "cursor" ||
@@ -114,11 +137,41 @@ export function parseArgs(argv: string[]): CliOptions {
       arg === "openrouter" ||
       arg === "cursor-cookie" ||
       arg === "init" ||
+      arg === "update" ||
+      arg === "version" ||
       arg === "help" ||
       arg === "--help" ||
-      arg === "-h"
+      arg === "-h" ||
+      arg === "--version" ||
+      arg === "-v"
     ) {
-      command = arg === "--help" || arg === "-h" ? "help" : arg;
+      if (arg === "env") {
+        const subcommand = argv[index + 1];
+        if (subcommand === "download") {
+          command = "env-download";
+          index += 1;
+          continue;
+        }
+        if (subcommand === "upload") {
+          command = "env-upload";
+          index += 1;
+          continue;
+        }
+        command = "help";
+        continue;
+      }
+
+      if (arg === "--help" || arg === "-h") {
+        command = "help";
+        continue;
+      }
+
+      if (arg === "--version" || arg === "-v" || arg === "version") {
+        command = "version";
+        continue;
+      }
+
+      command = arg;
       continue;
     }
 
@@ -159,6 +212,20 @@ export function parseArgs(argv: string[]): CliOptions {
   return { command, json, models, url, value, envFile, stdout };
 }
 
+async function getPackageMetadata(): Promise<PackageMetadata> {
+  const raw = await readFile(PACKAGE_JSON_PATH, "utf8");
+  const parsed = JSON.parse(raw) as Partial<PackageMetadata>;
+
+  if (typeof parsed.name !== "string" || typeof parsed.version !== "string") {
+    throw new Error(`Invalid package metadata in ${PACKAGE_JSON_PATH}.`);
+  }
+
+  return {
+    name: parsed.name,
+    version: parsed.version
+  };
+}
+
 function ensureBackendUrl(input: string): string {
   const normalized = input.trim().replace(/\/+$/, "");
   const parsed = new URL(normalized);
@@ -187,9 +254,13 @@ export function printHelp(): void {
   console.log("Usage:");
   console.log("  ai-cost                Show snapshot");
   console.log("  ai-cost --json         Show raw JSON snapshot");
+  console.log("  ai-cost --version      Show installed CLI version");
   console.log("  ai-cost init           Configure backend URL and local provider settings");
   console.log("  ai-cost login          Login and store API token");
   console.log("  ai-cost logout         Remove stored API token");
+  console.log("  ai-cost env download   Download synced env values into the local env file");
+  console.log("  ai-cost env upload     Upload synced env values from the local env file");
+  console.log("  ai-cost update         Install the latest ai-cost version globally");
   console.log("  ai-cost cursor         Show detailed local Cursor billing data");
   console.log("  ai-cost cursor --models  Show Cursor billing data with per-model table");
   console.log("  ai-cost codex          Show detailed local Codex rate-limit data");
@@ -205,6 +276,8 @@ export function printHelp(): void {
   console.log("Examples:");
   console.log("  ai-cost init --url https://ai-cost.example.com");
   console.log("  ai-cost login --url https://ai-cost.example.com");
+  console.log("  ai-cost env download --env-path ~/.ai-cost/config.env");
+  console.log("  ai-cost update");
   console.log("  ai-cost cursor-cookie --value \"WorkosCursorSessionToken=...\"");
   console.log("  Get-Clipboard | ai-cost cursor-cookie");
 }
@@ -252,6 +325,37 @@ async function fetchRemoteEnv(backendUrl: string, token: string): Promise<Syncab
   return payload.env as SyncableEnvValues;
 }
 
+async function uploadRemoteEnv(backendUrl: string, token: string, env: SyncableEnvValues): Promise<CliEnvSyncResponse> {
+  const response = await fetch(`${backendUrl}/api/cli/env`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      env
+    })
+  });
+
+  if (response.status === 401) {
+    throw new Error("Token rejected. Run `ai-cost login` again.");
+  }
+
+  if (!response.ok) {
+    throw new Error(`Env upload failed (${response.status}).`);
+  }
+
+  return (await response.json()) as CliEnvSyncResponse;
+}
+
+async function requireEnvFile(envFilePath: string): Promise<void> {
+  try {
+    await access(envFilePath);
+  } catch {
+    throw new Error(`Local env file not found: ${envFilePath}`);
+  }
+}
+
 async function runLogin(urlOption?: string): Promise<void> {
   const existingUrl = await getBackendUrl();
   const initialUrl = urlOption ?? existingUrl ?? DEFAULT_BACKEND_URL;
@@ -287,6 +391,76 @@ async function runLogin(urlOption?: string): Promise<void> {
 async function runLogout(): Promise<void> {
   await clearStoredToken();
   console.log("Stored CLI token removed.");
+}
+
+async function runVersion(): Promise<void> {
+  const metadata = await getPackageMetadata();
+  console.log(metadata.version);
+}
+
+async function runEnvDownload(urlOption?: string, envFileOption?: string): Promise<void> {
+  const backendUrl = ensureBackendUrl(urlOption ?? (await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
+  const envFilePath = path.resolve(envFileOption ?? (await resolveClientEnvPath()));
+  const token = await getStoredToken();
+
+  if (!token) {
+    throw new Error("No CLI token found. Run `ai-cost init` or `ai-cost login` first.");
+  }
+
+  const remoteEnv = await fetchRemoteEnv(backendUrl, token);
+  for (const key of SYNCABLE_ENV_KEYS) {
+    await upsertEnvValue(envFilePath, key, remoteEnv[key]);
+  }
+
+  console.log(`Downloaded ${SYNCABLE_ENV_KEYS.length} syncable env values from ${backendUrl} to ${envFilePath}.`);
+}
+
+async function runEnvUpload(urlOption?: string, envFileOption?: string): Promise<void> {
+  const backendUrl = ensureBackendUrl(urlOption ?? (await getBackendUrl()) ?? DEFAULT_BACKEND_URL);
+  const envFilePath = path.resolve(envFileOption ?? (await resolveClientEnvPath()));
+  const token = await getStoredToken();
+
+  if (!token) {
+    throw new Error("No CLI token found. Run `ai-cost init` or `ai-cost login` first.");
+  }
+
+  await requireEnvFile(envFilePath);
+  const envFile = await readEnvFile(envFilePath);
+  const env = pickSyncableEnvValues(envFile);
+  const result = await uploadRemoteEnv(backendUrl, token, env);
+  console.log(`Uploaded ${SYNCABLE_ENV_KEYS.length} syncable env values from ${envFilePath} to ${backendUrl}.`);
+  console.log(`Server env file: ${result.envFilePath}`);
+}
+
+export async function runGlobalUpdate(
+  spawnImpl: typeof spawn = spawn,
+  metadata?: PackageMetadata
+): Promise<void> {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const resolvedMetadata = metadata ?? (await getPackageMetadata());
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawnImpl(npmCommand, ["install", "--global", `${resolvedMetadata.name}@latest`], {
+      stdio: "inherit"
+    });
+
+    child.once("error", (error) => {
+      reject(error);
+    });
+
+    child.once("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`Global update failed with exit code ${code ?? "unknown"}.`));
+    });
+  });
+}
+
+async function runUpdate(): Promise<void> {
+  await runGlobalUpdate();
 }
 
 async function fetchRemoteSnapshot(backendUrl: string, token: string): Promise<SnapshotResponse> {
@@ -797,6 +971,9 @@ async function main(): Promise<void> {
     case "help":
       printHelp();
       return;
+    case "version":
+      await runVersion();
+      return;
     case "init":
       await runInit(options.url, options.envFile);
       return;
@@ -805,6 +982,15 @@ async function main(): Promise<void> {
       return;
     case "logout":
       await runLogout();
+      return;
+    case "env-download":
+      await runEnvDownload(options.url, options.envFile);
+      return;
+    case "env-upload":
+      await runEnvUpload(options.url, options.envFile);
+      return;
+    case "update":
+      await runUpdate();
       return;
     case "cursor":
       await runCursor(options.json, options.envFile, options.models);
