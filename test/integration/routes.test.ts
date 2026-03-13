@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { AppConfig } from "../../src/config.js";
@@ -76,11 +79,15 @@ function installProviderFetchMock(options?: {
 
 describe("auth + snapshot routes", () => {
   let config: AppConfig;
+  let syncEnvPath: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-03-09T21:00:00.000Z"));
     installProviderFetchMock();
+    const syncEnvDir = await mkdtemp(path.join(tmpdir(), "ai-cost-env-sync-"));
+    syncEnvPath = path.join(syncEnvDir, "server.env");
+    process.env.AI_COST_ENV_SYNC_PATH = syncEnvPath;
     config = makeConfig({
       APP_PASSWORD_HASH: hashPassword("my-password"),
       APP_SECURE_COOKIE: false,
@@ -89,6 +96,7 @@ describe("auth + snapshot routes", () => {
   });
 
   afterEach(() => {
+    delete process.env.AI_COST_ENV_SYNC_PATH;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -251,6 +259,126 @@ describe("auth + snapshot routes", () => {
     });
 
     expect(response.statusCode).toBe(401);
+    await app.close();
+  }, 15000);
+
+  it("returns syncable env values and persists posted updates", async () => {
+    const app = await buildApp(config);
+    const cookie = await loginAndGetCookie(app);
+
+    const initial = await app.inject({
+      method: "GET",
+      path: "/api/cli/env",
+      headers: {
+        cookie
+      }
+    });
+
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json()).toMatchObject({
+      ok: true,
+      env: {
+        OPENAI_API_KEY: "sk-test",
+        OPENROUTER_API_KEY: "or-test",
+        CURSOR_DASHBOARD_COOKIE: "WorkosCursorSessionToken=test-cookie"
+      },
+      envFilePath: syncEnvPath
+    });
+
+    const update = await app.inject({
+      method: "POST",
+      path: "/api/cli/env",
+      headers: {
+        cookie
+      },
+      payload: {
+        env: {
+          OPENAI_API_KEY: "sk-remote",
+          OPENROUTER_API_KEY: "or-remote",
+          CURSOR_DASHBOARD_COOKIE: "WorkosCursorSessionToken=remote-cookie"
+        }
+      }
+    });
+
+    expect(update.statusCode).toBe(200);
+    expect(update.json()).toMatchObject({
+      ok: true,
+      updatedKeys: 3,
+      env: {
+        OPENAI_API_KEY: "sk-remote",
+        OPENROUTER_API_KEY: "or-remote",
+        CURSOR_DASHBOARD_COOKIE: "WorkosCursorSessionToken=remote-cookie"
+      },
+      envFilePath: syncEnvPath
+    });
+
+    const next = await app.inject({
+      method: "GET",
+      path: "/api/cli/env",
+      headers: {
+        cookie
+      }
+    });
+
+    expect(next.statusCode).toBe(200);
+    expect(next.json()).toMatchObject({
+      ok: true,
+      env: {
+        OPENAI_API_KEY: "sk-remote",
+        OPENROUTER_API_KEY: "or-remote",
+        CURSOR_DASHBOARD_COOKIE: "WorkosCursorSessionToken=remote-cookie"
+      }
+    });
+
+    await app.close();
+  }, 15000);
+
+  it("denies env sync routes without auth", async () => {
+    const app = await buildApp(config);
+
+    const response = await app.inject({
+      method: "GET",
+      path: "/api/cli/env"
+    });
+
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  }, 15000);
+
+  it("returns a clear storage error when the snapshot cache path is not writable", async () => {
+    const tempDir = await mkdtemp(path.join(tmpdir(), "ai-cost-cache-error-"));
+    const blockedPath = path.join(tempDir, "not-a-directory");
+    await writeFile(blockedPath, "blocked", "utf8");
+
+    const blockedConfig = makeConfig({
+      APP_PASSWORD_HASH: hashPassword("my-password"),
+      APP_SECURE_COOKIE: false,
+      appSecureCookie: false,
+      APP_DATA_DIR: blockedPath
+    });
+    const app = await buildApp(blockedConfig);
+    const cookie = await loginAndGetCookie(app);
+
+    const response = await app.inject({
+      method: "POST",
+      path: "/api/cli/cache/snapshot",
+      headers: {
+        cookie
+      },
+      payload: {
+        generatedAt: "2026-03-09T20:55:00.000Z",
+        command: "show",
+        providers: [],
+        providerDetails: []
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      error: "cache_unavailable",
+      message: "Snapshot cache storage is not writable. Check APP_DATA_DIR permissions."
+    });
+
     await app.close();
   }, 15000);
 

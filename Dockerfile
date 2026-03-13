@@ -33,6 +33,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile --prod
 
 COPY --from=build /app/dist ./dist
+RUN mkdir -p /data && chown -R node:node /data
 
 USER node
 

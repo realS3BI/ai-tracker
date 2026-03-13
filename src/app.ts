@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { AppConfig } from "./config.js";
 import { registerSession } from "./auth/session.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerEnvRoutes } from "./routes/env.js";
 import { registerSnapshotRoutes } from "./routes/snapshot.js";
 import { registerWebRoutes } from "./routes/web.js";
 import rateLimit from "@fastify/rate-limit";
@@ -23,6 +24,7 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
   }));
 
   await registerAuthRoutes(app, config);
+  await registerEnvRoutes(app, config);
   await registerSnapshotRoutes(app, config);
   await registerWebRoutes(app);
 

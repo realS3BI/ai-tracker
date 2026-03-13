@@ -57,6 +57,17 @@ export interface CliSnapshotUploadResponse {
   providersStored: number;
 }
 
+export interface CliEnvSyncRequest {
+  env: Record<string, string>;
+}
+
+export interface CliEnvSyncResponse {
+  ok: true;
+  env: Record<string, string>;
+  envFilePath: string;
+  updatedKeys?: number;
+}
+
 export interface CliJsonOutput extends SnapshotResponse {
   notices?: string[];
 }

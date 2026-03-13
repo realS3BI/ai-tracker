@@ -146,12 +146,27 @@ export async function registerSnapshotRoutes(
       });
     }
 
-    const stored = await writeServerSnapshotCache(config, request.body, new Date());
-    return reply.send({
-      ok: true,
-      storedAt: stored.updatedAt,
-      providersStored: request.body.providers.length
-    });
+    try {
+      const stored = await writeServerSnapshotCache(config, request.body, new Date());
+      return reply.send({
+        ok: true,
+        storedAt: stored.updatedAt,
+        providersStored: request.body.providers.length
+      });
+    } catch (error) {
+      request.log.error(
+        {
+          error,
+          appDataDir: config.APP_DATA_DIR
+        },
+        "Failed to persist uploaded CLI snapshot cache."
+      );
+
+      return reply.code(503).send({
+        error: "cache_unavailable",
+        message: "Snapshot cache storage is not writable. Check APP_DATA_DIR permissions."
+      });
+    }
   });
 
   app.get("/api/snapshot", async (request, reply) => {

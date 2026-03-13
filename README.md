@@ -72,6 +72,7 @@ curl http://127.0.0.1:3000/api/health
 ```
 
 The Compose stack persists fallback cache data in the named volume `ai-cost-data`, mounted at `/data` inside the container. The Compose file also sets `APP_DATA_DIR=/data` for the service.
+The image pre-creates `/data` for the unprivileged `node` user so fresh deployments can write the snapshot cache without permission errors. If an older deployment already created the volume with root ownership, reset that volume's ownership once or recreate it after upgrading.
 
 Exact envs for `.env.prod` / Coolify:
 

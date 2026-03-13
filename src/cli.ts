@@ -2,7 +2,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import prompts from "prompts";
-import { extractCursorSessionToken, upsertEnvValue } from "./cli/cursor-cookie.js";
+import { extractCursorSessionToken } from "./cli/cursor-cookie.js";
 import { DEFAULT_CLIENT_ENV_PATH, loadClientProviderConfig, resolveClientEnvPath } from "./cli/client-config.js";
 import {
   clearStoredToken,
@@ -13,6 +13,8 @@ import {
   setClientEnvPath,
   setStoredToken
 } from "./cli/credential-store.js";
+import type { SyncableEnvValues } from "./env-sync.js";
+import { upsertEnvValue } from "./env-file.js";
 import { getCodexDetails } from "./providers/codex.js";
 import { getCursorDetails } from "./providers/cursor.js";
 import { getOpenAiApiDetails } from "./providers/openaiApi.js";
@@ -30,6 +32,7 @@ import {
 import { renderTable } from "./snapshot-view.js";
 import type { ClientProviderConfig } from "./cli/client-config.js";
 import type {
+  CliEnvSyncResponse,
   CliJsonOutput,
   CliSnapshotUploadRequest,
   ProviderDetailCard,
@@ -48,6 +51,14 @@ export {
 
 const DEFAULT_BACKEND_URL = "http://localhost:3000";
 const PROVIDER_ORDER: ProviderId[] = ["openai-codex", "openai-api", "openrouter", "cursor"];
+const PROMPT_ABORT_EXIT_CODE = 130;
+
+export class PromptAbortedError extends Error {
+  constructor() {
+    super("Prompt aborted.");
+    this.name = "PromptAbortedError";
+  }
+}
 
 interface CliOptions {
   command: "show" | "login" | "logout" | "cursor" | "codex" | "openai" | "openrouter" | "cursor-cookie" | "init" | "help";
@@ -66,6 +77,20 @@ interface LocalProviderBundle {
   cursor?: Awaited<ReturnType<typeof getCursorDetails>>;
   providers: ProviderSnapshot[];
   providerDetails: ProviderDetailCard[];
+}
+
+export async function promptOrAbort<T extends string>(
+  questions: prompts.PromptObject<T> | Array<prompts.PromptObject<T>>
+): Promise<prompts.Answers<T>> {
+  return prompts<T>(questions, {
+    onCancel: () => {
+      throw new PromptAbortedError();
+    }
+  });
+}
+
+export function getCliExitCode(error: unknown): number {
+  return error instanceof PromptAbortedError ? PROMPT_ABORT_EXIT_CODE : 1;
 }
 
 export function parseArgs(argv: string[]): CliOptions {
@@ -208,11 +233,30 @@ async function requestCliToken(backendUrl: string, password: string): Promise<st
   return payload.token;
 }
 
+async function fetchRemoteEnv(backendUrl: string, token: string): Promise<SyncableEnvValues> {
+  const response = await fetch(`${backendUrl}/api/cli/env`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (response.status === 401) {
+    throw new Error("Token rejected. Run `ai-cost login` again.");
+  }
+
+  if (!response.ok) {
+    throw new Error(`Env download failed (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as CliEnvSyncResponse;
+  return payload.env as SyncableEnvValues;
+}
+
 async function runLogin(urlOption?: string): Promise<void> {
   const existingUrl = await getBackendUrl();
   const initialUrl = urlOption ?? existingUrl ?? DEFAULT_BACKEND_URL;
 
-  const answers = await prompts(
+  const answers = await promptOrAbort(
     [
       {
         type: "text",
@@ -225,13 +269,7 @@ async function runLogin(urlOption?: string): Promise<void> {
         name: "password",
         message: "Password"
       }
-    ],
-    {
-      onCancel: () => {
-        process.exitCode = 1;
-        return true;
-      }
-    }
+    ]
   );
 
   if (!answers.backendUrl || !answers.password) {
@@ -288,7 +326,17 @@ async function uploadCliSnapshotCache(
   }
 
   if (!response.ok) {
-    throw new Error(`Cache upload failed (${response.status}).`);
+    let detail: string | undefined;
+    try {
+      const body = (await response.json()) as { message?: unknown };
+      if (typeof body.message === "string" && body.message.trim().length > 0) {
+        detail = body.message;
+      }
+    } catch {
+      // ignore non-JSON error responses and keep the status-based fallback
+    }
+
+    throw new Error(detail ? `Cache upload failed (${response.status}): ${detail}` : `Cache upload failed (${response.status}).`);
   }
 }
 
@@ -442,6 +490,22 @@ export function mergeProviderSnapshots(
   };
 }
 
+function isConnectionError(error: unknown): boolean {
+  if (error instanceof Error) {
+    if (error.message === "fetch failed") {
+      return true;
+    }
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ECONNRESET" || code === "ETIMEDOUT") {
+      return true;
+    }
+    if (error.cause instanceof Error) {
+      return isConnectionError(error.cause);
+    }
+  }
+  return false;
+}
+
 function normalizeCursorCookieValue(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -451,12 +515,21 @@ function normalizeCursorCookieValue(value: string): string {
   return extractCursorSessionToken(trimmed) ?? trimmed;
 }
 
+function preferRemoteDefault(localValue: string | number | undefined, remoteValue: string | undefined): string {
+  const normalizedLocal = typeof localValue === "number" ? String(localValue) : localValue;
+  const trimmedLocal = normalizedLocal?.trim();
+  if (trimmedLocal) {
+    return trimmedLocal;
+  }
+
+  return remoteValue?.trim() ?? "";
+}
+
 async function runInit(urlOption?: string, envFileOption?: string): Promise<void> {
   const existingUrl = await getBackendUrl();
   const initialEnvPath = await resolveClientEnvPath(envFileOption ?? (await getClientEnvPath()) ?? undefined);
-  const currentConfig = await loadClientProviderConfig(initialEnvPath);
 
-  const answers = await prompts(
+  const setupAnswers = await promptOrAbort(
     [
       {
         type: "text",
@@ -474,7 +547,42 @@ async function runInit(urlOption?: string, envFileOption?: string): Promise<void
         type: "password",
         name: "backendPassword",
         message: "Backend password (optional, blank skips login)"
-      },
+      }
+    ]
+  );
+
+  if (!setupAnswers.backendUrl || !setupAnswers.envFilePath) {
+    throw new Error("Init aborted.");
+  }
+
+  const backendUrl = ensureBackendUrl(setupAnswers.backendUrl);
+  const envFilePath = path.resolve(setupAnswers.envFilePath);
+  const currentConfig = await loadClientProviderConfig(envFilePath);
+  const backendPassword = setupAnswers.backendPassword?.trim();
+  let token: string | null = null;
+  let remoteEnv: SyncableEnvValues | null = null;
+  let remoteEnvError: string | null = null;
+
+  if (backendPassword) {
+    try {
+      token = await requestCliToken(backendUrl, backendPassword);
+      try {
+        remoteEnv = await fetchRemoteEnv(backendUrl, token);
+      } catch (error) {
+        remoteEnvError = error instanceof Error ? error.message : "Failed to load server env defaults.";
+      }
+    } catch (error) {
+      if (isConnectionError(error)) {
+        remoteEnvError = `Could not reach the backend at ${backendUrl}. Is the server running? Continuing without login.`;
+        console.warn(`ai-cost: ${remoteEnvError}`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  const answers = await promptOrAbort(
+    [
       {
         type: "text",
         name: "codexHome",
@@ -491,62 +599,47 @@ async function runInit(urlOption?: string, envFileOption?: string): Promise<void
         type: "text",
         name: "cursorCookie",
         message: "Cursor cookie/token (optional)",
-        initial: currentConfig.CURSOR_DASHBOARD_COOKIE ?? ""
+        initial: preferRemoteDefault(currentConfig.CURSOR_DASHBOARD_COOKIE, remoteEnv?.CURSOR_DASHBOARD_COOKIE)
       },
       {
         type: "text",
         name: "cursorTeamId",
         message: "Cursor team ID",
-        initial: String(currentConfig.CURSOR_TEAM_ID)
+        initial: preferRemoteDefault(currentConfig.CURSOR_TEAM_ID, remoteEnv?.CURSOR_TEAM_ID) || "-1"
       },
       {
         type: "text",
         name: "openaiApiKey",
         message: "OPENAI_API_KEY (optional)",
-        initial: currentConfig.OPENAI_API_KEY ?? ""
+        initial: preferRemoteDefault(currentConfig.OPENAI_API_KEY, remoteEnv?.OPENAI_API_KEY)
       },
       {
         type: "text",
         name: "openaiOrgId",
         message: "OPENAI_ORG_ID (optional)",
-        initial: currentConfig.OPENAI_ORG_ID ?? ""
+        initial: preferRemoteDefault(currentConfig.OPENAI_ORG_ID, remoteEnv?.OPENAI_ORG_ID)
       },
       {
         type: "text",
         name: "openaiBudgetUsd",
         message: "OPENAI_MONTHLY_BUDGET_USD (optional)",
-        initial:
-          typeof currentConfig.OPENAI_MONTHLY_BUDGET_USD === "number"
-            ? String(currentConfig.OPENAI_MONTHLY_BUDGET_USD)
-            : ""
+        initial: preferRemoteDefault(currentConfig.OPENAI_MONTHLY_BUDGET_USD, remoteEnv?.OPENAI_MONTHLY_BUDGET_USD)
       },
       {
         type: "text",
         name: "openrouterApiKey",
         message: "OPENROUTER_API_KEY (optional)",
-        initial: currentConfig.OPENROUTER_API_KEY ?? ""
+        initial: preferRemoteDefault(currentConfig.OPENROUTER_API_KEY, remoteEnv?.OPENROUTER_API_KEY)
       },
       {
         type: "text",
         name: "providerTimeoutMs",
         message: "PROVIDER_TIMEOUT_MS",
-        initial: String(currentConfig.PROVIDER_TIMEOUT_MS)
+        initial: preferRemoteDefault(currentConfig.PROVIDER_TIMEOUT_MS, remoteEnv?.PROVIDER_TIMEOUT_MS) || "10000"
       }
-    ],
-    {
-      onCancel: () => {
-        process.exitCode = 1;
-        return true;
-      }
-    }
+    ]
   );
 
-  if (!answers.backendUrl || !answers.envFilePath) {
-    throw new Error("Init aborted.");
-  }
-
-  const backendUrl = ensureBackendUrl(answers.backendUrl);
-  const envFilePath = path.resolve(answers.envFilePath);
   await setBackendUrl(backendUrl);
   await setClientEnvPath(envFilePath);
 
@@ -560,9 +653,12 @@ async function runInit(urlOption?: string, envFileOption?: string): Promise<void
   await upsertEnvValue(envFilePath, "OPENROUTER_API_KEY", answers.openrouterApiKey?.trim() || "");
   await upsertEnvValue(envFilePath, "PROVIDER_TIMEOUT_MS", answers.providerTimeoutMs?.trim() || "10000");
 
-  if (answers.backendPassword?.trim()) {
-    const token = await requestCliToken(backendUrl, answers.backendPassword);
+  if (token) {
     await setStoredToken(token);
+    if (remoteEnvError) {
+      console.log(`Saved local CLI config to ${envFilePath} and refreshed backend token. Server env defaults could not be loaded: ${remoteEnvError}`);
+      return;
+    }
     console.log(`Saved local CLI config to ${envFilePath} and refreshed backend token.`);
     return;
   }
@@ -661,17 +757,11 @@ async function getCursorCookieInput(valueOption?: string): Promise<string> {
     }
   }
 
-  const answer = await prompts(
+  const answer = await promptOrAbort(
     {
       type: "text",
       name: "value",
       message: "Paste Cursor cookie header, curl command, or WorkosCursorSessionToken"
-    },
-    {
-      onCancel: () => {
-        process.exitCode = 1;
-        return true;
-      }
     }
   );
 
@@ -741,8 +831,12 @@ async function main(): Promise<void> {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   void main().catch((error) => {
+    if (error instanceof PromptAbortedError) {
+      process.exit(getCliExitCode(error));
+    }
+
     const message = error instanceof Error ? error.message : "Unknown CLI error";
     console.error(`ai-cost: ${message}`);
-    process.exit(1);
+    process.exit(getCliExitCode(error));
   });
 }

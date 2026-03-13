@@ -1,9 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { parse } from "dotenv";
 import { getClientEnvPath } from "./credential-store.js";
 import type { ProviderRuntimeConfig } from "../providers/runtime-config.js";
+import { readEnvFile } from "../env-file.js";
 
 export const CLI_APP_DIR = path.join(homedir(), ".ai-cost");
 export const DEFAULT_CLIENT_ENV_PATH = path.join(CLI_APP_DIR, "config.env");
@@ -41,18 +40,6 @@ function parseOptionalNumber(value: string | undefined): number | undefined {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-async function readEnvFile(envFilePath: string): Promise<Record<string, string>> {
-  try {
-    const raw = await readFile(envFilePath, "utf8");
-    return parse(raw);
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return {};
-    }
-    throw error;
-  }
 }
 
 export async function resolveClientEnvPath(envFilePath?: string): Promise<string> {

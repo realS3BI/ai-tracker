@@ -24,6 +24,8 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "pnpm clean && tsc -p tsconfig.json && node dist/src/validate-build-env.js",
     "deploy": "node scripts/deploy.mjs",
+    "env:upload": "tsx scripts/env-sync.ts upload",
+    "env:download": "tsx scripts/env-sync.ts download",
     "start": "node dist/src/server.js",
     "hash-password": "tsx scripts/hash-password.ts",
     "prepack": "pnpm build",
