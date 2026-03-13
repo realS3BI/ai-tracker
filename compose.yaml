@@ -6,10 +6,12 @@ services:
     init: true
     env_file:
       - .env.prod
+    environment:
+      APP_DATA_DIR: /data
     ports:
       - "${APP_BIND_PORT:-3000}:${PORT:-3000}"
     volumes:
-      - ai-cost-data:${APP_DATA_DIR:-/data}
+      - ai-cost-data:/data
 
 volumes:
   ai-cost-data:

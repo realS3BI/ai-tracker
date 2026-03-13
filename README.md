@@ -71,7 +71,7 @@ docker compose --env-file .env.prod up -d --build
 curl http://127.0.0.1:3000/api/health
 ```
 
-The Compose stack persists fallback cache data in the named volume `ai-cost-data`, mounted into `APP_DATA_DIR` inside the container.
+The Compose stack persists fallback cache data in the named volume `ai-cost-data`, mounted at `/data` inside the container. The Compose file also sets `APP_DATA_DIR=/data` for the service.
 
 Exact envs for `.env.prod` / Coolify:
 
@@ -85,7 +85,6 @@ Exact envs for `.env.prod` / Coolify:
 - `APP_SECURE_COOKIE=true`
 - `CLI_TOKEN_TTL_SECONDS=2592000`
 - `PROVIDER_TIMEOUT_MS=10000`
-- `APP_DATA_DIR=/data`
 - `OPENAI_API_KEY=...`
 - `OPENAI_ORG_ID=...`
 - `OPENAI_MONTHLY_BUDGET_USD=100` (optional)
@@ -100,7 +99,7 @@ Optional for a backend-side Codex bind mount:
 CODEX_HOST_PATH=/absolute/path/to/.codex
 ```
 
-Coolify note: use the same keys from `.env.prod` in the Coolify environment UI. `APP_DATA_DIR=/data` should point at a persistent volume path there as well.
+Coolify note: use the same keys from `.env.prod` in the Coolify environment UI. For the prepared Compose stack, keep the service data path fixed at `/data`; the persistent storage is provided by the `ai-cost-data` volume mapping in `compose.yaml`.
 
 If you want Codex usage from inside the backend container, add a bind mount from `CODEX_HOST_PATH` to a container path like `/codex` and set `CODEX_HOME=/codex`. In the common hosted setup you usually leave `CODEX_HOME` empty and let each CLI read Codex locally on its own machine.
 
